@@ -270,54 +270,44 @@ elif choice == "📦 Gallery":
 elif choice == "💬 Chatroom":
     st.header("💬 Campus Discovery Chat")
     
-    # 1. Check if a match exists in the session state
-    match_data = st.session_state.get("latest_match", None)
+    # 1. Safely check for a match
+    match_data = st.session_state.get("latest_match")
     
-    # 2. Extract score (default to 0 if no match exists)
-    score = match_data.get("score", 0) if match_data else 0
+    # 2. Block access if no match exists or score is too low
+    if not match_data:
+        st.warning("🔒 Chatroom Locked")
+        st.error("You don't have any matches yet.")
+        st.info("Report an item first to trigger the matching engine.")
+        st.stop() # Stops execution here so it doesn't crash below
 
-    # 3. Access Logic: Allow if score >= 50 or if user is Admin
+    score = match_data.get("score", 0)
+
     if score >= 50 or role == "admin":
-        # Get the name of the person User 1 is matched with
         matched_item = match_data.get("item", {})
-        other_user = matched_item.get("reported_by", "Admin")
+        item_id = matched_item.get("id")
+        other_user = matched_item.get("reported_by", "Other User")
         
-        st.success(f"✅ Access Granted! You are matched with **{other_user}** (Score: {score}%)")
-        st.info(f"Discussing Item: **{matched_item.get('item_name')}**")
+        st.success(f"✅ Access Granted! Matched with **{other_user}**")
+        st.caption(f"Discussing: {matched_item.get('item_name')} | Match Score: {score}%")
 
-        # Initialize messages in session state if not present
-        if "messages" not in st.session_state:
-            st.session_state.messages = []
+        # --- DATABASE SYNC: Fetch messages from DB so User 2 can see them ---
+        chat_history = get_messages(item_id) 
 
-        # Chat Interface
         chat_container = st.container(height=400)
         with chat_container:
-            for msg in st.session_state.messages:
-                # Use "user" icon for current user, "assistant" (or different icon) for the match
+            for msg in chat_history:
                 is_me = msg['user'] == uname
                 with st.chat_message("user" if is_me else "assistant"):
                     st.write(f"**{msg['user']}**: {msg['text']}")
 
-        # Chat Input
-        if prompt := st.chat_input("Ask for more details to verify ownership..."):
-            # Update local session state
-            st.session_state.messages.append({"user": uname, "text": prompt})
-            
-            # OPTIONAL: Save to database so User 2 can see it when they log in
-            # add_message(matched_item['id'], uname, prompt) 
-            
+        # --- INPUT: Save message to DB ---
+        if prompt := st.chat_input("Ask for more details..."):
+            add_message(item_id, uname, prompt) # This sends it to User 2
             st.rerun()
 
     else:
-        # 4. "No Match" Notifications
         st.warning("🔒 Chatroom Locked")
-        
-        if not match_data:
-            st.error("🚫 You don't have any matches yet.")
-            st.info("Try reporting a lost or found item first to trigger the matching engine.")
-        else:
-            st.error(f"⚠️ Your closest match is only {score}%.")
-            st.info("Chat access requires a 50% or higher similarity score to prevent spam.")
+        st.error(f"Match score too low ({score}%). 50% or higher required.")
 
 elif choice == "👤 My Profile":
     st.header("👤 Your Profile")

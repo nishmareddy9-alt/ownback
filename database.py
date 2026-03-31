@@ -339,3 +339,17 @@ def get_user_reported_items(username):
     res = conn.execute("SELECT * FROM items WHERE reported_by=? ORDER BY id DESC", (username,)).fetchall()
     conn.close()
     return res
+def add_message(item_id, sender, msg):
+    """Saves a chat message to the database so the other user can see it."""
+    conn = get_connection()
+    conn.execute("INSERT INTO messages (item_id, sender, message) VALUES (?,?,?)", (item_id, sender, msg))
+    conn.commit()
+    conn.close()
+
+def get_messages(item_id):
+    """Fetches all messages for a specific item match."""
+    conn = get_connection()
+    # Fetching as a list of dictionaries for easier use in Streamlit
+    res = conn.execute("SELECT sender as user, message as text FROM messages WHERE item_id=? ORDER BY timestamp ASC", (item_id,)).fetchall()
+    conn.close()
+    return [dict(row) for row in res]
