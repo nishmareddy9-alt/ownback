@@ -1,3 +1,4 @@
 streamlit
 qrcode[pil]
 pillow
+streamlit_image_coordinates
