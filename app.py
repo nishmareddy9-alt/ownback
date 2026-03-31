@@ -269,26 +269,55 @@ elif choice == "📦 Gallery":
 
 elif choice == "💬 Chatroom":
     st.header("💬 Campus Discovery Chat")
-    score = st.session_state.get("latest_match", {}).get("score", 0)
     
-    if score > 50 or role == "admin":
-        st.success(f"✅ Access Granted (Match Score: {score}%)")
+    # 1. Check if a match exists in the session state
+    match_data = st.session_state.get("latest_match", None)
+    
+    # 2. Extract score (default to 0 if no match exists)
+    score = match_data.get("score", 0) if match_data else 0
+
+    # 3. Access Logic: Allow if score >= 50 or if user is Admin
+    if score >= 50 or role == "admin":
+        # Get the name of the person User 1 is matched with
+        matched_item = match_data.get("item", {})
+        other_user = matched_item.get("reported_by", "Admin")
+        
+        st.success(f"✅ Access Granted! You are matched with **{other_user}** (Score: {score}%)")
+        st.info(f"Discussing Item: **{matched_item.get('item_name')}**")
+
+        # Initialize messages in session state if not present
         if "messages" not in st.session_state:
             st.session_state.messages = []
 
+        # Chat Interface
         chat_container = st.container(height=400)
         with chat_container:
             for msg in st.session_state.messages:
-                with st.chat_message("user" if msg['user'] == uname else "assistant"):
+                # Use "user" icon for current user, "assistant" (or different icon) for the match
+                is_me = msg['user'] == uname
+                with st.chat_message("user" if is_me else "assistant"):
                     st.write(f"**{msg['user']}**: {msg['text']}")
 
-        if prompt := st.chat_input("Verify item details..."):
+        # Chat Input
+        if prompt := st.chat_input("Ask for more details to verify ownership..."):
+            # Update local session state
             st.session_state.messages.append({"user": uname, "text": prompt})
+            
+            # OPTIONAL: Save to database so User 2 can see it when they log in
+            # add_message(matched_item['id'], uname, prompt) 
+            
             st.rerun()
+
     else:
+        # 4. "No Match" Notifications
         st.warning("🔒 Chatroom Locked")
-        st.error("Access requires a potential match score above 50%.")
-        st.info("Report an item first to find matches.")
+        
+        if not match_data:
+            st.error("🚫 You don't have any matches yet.")
+            st.info("Try reporting a lost or found item first to trigger the matching engine.")
+        else:
+            st.error(f"⚠️ Your closest match is only {score}%.")
+            st.info("Chat access requires a 50% or higher similarity score to prevent spam.")
 
 elif choice == "👤 My Profile":
     st.header("👤 Your Profile")
@@ -314,7 +343,7 @@ elif choice == "👤 My Profile":
                     st.write(f"**Location:** {item['location_name']}")
                 with c2:
                     st.write(f"**Date:** {item['date']}")
-                    st.write(f"**Reward/Note:** {item['reward']}")
+                    st.write(f"**Room/block:** {item['reward']}")
                 with c3:
                     if item['status'] == 'Active':
                         st.success("🟢 Active")
