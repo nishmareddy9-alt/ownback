@@ -353,3 +353,49 @@ def get_messages(item_id):
     res = conn.execute("SELECT sender as user, message as text FROM messages WHERE item_id=? ORDER BY timestamp ASC", (item_id,)).fetchall()
     conn.close()
     return [dict(row) for row in res]
+def insert_item(data):
+    conn = get_connection()
+    conn.execute("""
+        INSERT INTO items(
+            item_name, item_type, category, description, location_name, 
+            date, contact_email, contact_phone, image_path, file_path, 
+            status, reported_by, reward
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+    """, data) # There are 13 '?' marks here to match the 13 items in item_data
+    conn.commit()
+    conn.close()
+def get_user_match(username):
+    """Checks if the user is either the finder or the loser in a high-score match."""
+    conn = get_connection()
+    # This query looks for the most recent active match involving the user
+    # Note: Adjust column names if your matches table differs
+    query = """
+        SELECT * FROM items 
+        WHERE (reported_by = ? OR claimed_by = ?) 
+        AND status = 'Active' 
+        LIMIT 1
+    """
+    res = conn.execute(query, (username, username)).fetchone()
+    conn.close()
+    return dict(res) if res else None
+def get_active_match_for_user(username):
+    """Checks the items table for any matched items involving this user."""
+    conn = get_connection()
+    # This query looks for the most recent active item reported by the user
+    # Adjust column names if your table uses different ones
+    query = "SELECT * FROM items WHERE reported_by = ? AND status = 'Active' ORDER BY id DESC LIMIT 1"
+    res = conn.execute(query, (username,)).fetchone()
+    conn.close()
+    return dict(res) if res else None
+def verify_user(email, password):
+    """Checks if a user exists with the given email and password."""
+    conn = get_connection()
+    # Replace 'users' and column names with your actual table/column names
+    query = "SELECT * FROM users WHERE email = ? AND password = ?"
+    res = conn.execute(query, (email, password)).fetchone()
+    conn.close()
+    
+    if res:
+        # Convert the row to a dictionary so app.py can read 'role', 'name', etc.
+        return dict(res)
+    return None
