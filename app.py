@@ -1,10 +1,41 @@
 import streamlit as st
-import os, time, random
+import os
+import time
+import random
 from datetime import date
-from database import *
+
+# 1. Component for the Campus Map
+from streamlit_image_coordinates import streamlit_image_coordinates
+
+# 2. Custom Utility Imports
 from email_utils import send_otp_email
 from qr_utils import generate_qr
-from streamlit_image_coordinates import streamlit_image_coordinates
+
+# 3. Database Imports (Explicitly listing functions prevents NameErrors)
+from database import (
+    get_connection, 
+    insert_item, 
+    get_items, 
+    search_items, 
+    get_messages, 
+    add_message, 
+    get_active_match_for_user,
+    claim_item,
+    set_otp,
+    verify_user,
+    find_matches,
+    create_tables,
+    login_user,
+    verify_otp_db,
+    get_user_profile_by_email,
+    add_user,
+    get_user_data_csv,
+    get_items_data_csv,
+    get_detailed_items_for_admin,
+    delete_item,
+    get_user_reported_items,
+    analytics
+)
 
 # --- PAGE CONFIGURATION ---
 st.set_page_config(
@@ -19,11 +50,11 @@ create_tables()
 # --- HELPER FUNCTIONS ---
 
 def get_location_from_map(x, y):
-    if 260 <= x <= 370 and 0<= y <= 60:
+    if 260 <= x <= 370 and 0 <= y <= 60:
         return "Main Block"
     elif 610 <= x <= 720 and 0 <= y <= 100:
         return "T-Block"
-    elif 530<= x <= 580 and 120 <= y <= 320:
+    elif 530 <= x <= 580 and 120 <= y <= 320:
         return "Saraswathi Statue"
     elif 620 <= x <= 740 and 230 <= y <= 310:
         return "Canteen Area"
@@ -181,8 +212,9 @@ if choice == "👑 Admin Controls":
 
 elif choice == "📢 Report Item":
     st.header("📢 Report a Lost or Found Item")
-    st.subheader("📍 Select Location on Campus Map")
     
+    # --- 1. CAMPUS MAP SELECTION ---
+    st.subheader("📍 Select Location on Campus Map")
     current_dir = os.path.dirname(os.path.abspath(__file__))
     image_path = os.path.join(current_dir, "Untitled design.png")
 
@@ -196,61 +228,104 @@ elif choice == "📢 Report Item":
             if clicked_location:
                 st.success(f"📍 Detected Location: **{clicked_location}**")
             else:
-                st.warning("⚠️ **Invalid Location:** enter the location manually below.")
+                st.warning("⚠️ **Invalid Location:** Please enter the location manually below.")
 
+    # --- 2. REPORT FORM ---
     with st.form("report_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
+        
         with col1:
             item_name = st.text_input("Item Name", placeholder="e.g., Blue Wallet")
             item_type = st.selectbox("Type", ["Lost", "Found"])
             category = st.selectbox("Category", ["Electronics","Wallet","keys","Books", "Documents", "Accessories", "Others"])
             location = st.text_input("Location", value=clicked_location)
+            
         with col2:
             report_date = st.date_input("Date", value=date.today())
-            Room_block = st.text_input("Room/block",value=st.session_state.user.get('Room/block', "") ,placeholder="e.g., S-408")
+            # Reward/Room Block logic
+            room_info = st.text_input("Room / Block Info", placeholder="e.g., S-408 or Canteen Area")
             contact_ph = st.text_input("Contact Phone", value=st.session_state.user.get('phone', ""))
             contact_em = st.text_input("Contact Email", value=st.session_state.user.get('email', ""))
         
-        description = st.text_area("Detailed Description")
+        description = st.text_area("Detailed Description (e.g. brand, color, unique marks)")
         uploaded_file = st.file_uploader("Upload Image", type=['png', 'jpg', 'jpeg'])
         
+        # --- 3. FORM SUBMISSION & FILE SAVING ---
         if st.form_submit_button("📢 Submit Report", use_container_width=True):
             if not item_name or not location:
                 st.error("⚠️ Item Name and Location are required!")
             elif is_spam(item_name):
                 st.warning("🚫 Invalid Item: Please report tangible campus items.")
             else:
-                img_path = uploaded_file.name if uploaded_file else "None"
-                item_data = (item_name, item_type, category, description, location, str(report_date), 
-                             contact_em, contact_ph, img_path, "None", "Active", uname, Room_block)
+                # --- IMAGE HANDLING ---
+                saved_img_path = "None"
+                if uploaded_file:
+                    upload_dir = os.path.join(current_dir, "uploads")
+                    if not os.path.exists(upload_dir):
+                        os.makedirs(upload_dir)
+                    
+                    file_extension = os.path.splitext(uploaded_file.name)[1]
+                    unique_filename = f"{item_type}_{int(time.time())}{file_extension}"
+                    saved_img_path = os.path.join("uploads", unique_filename)
+                    full_save_path = os.path.join(current_dir, saved_img_path)
+                    
+                    with open(full_save_path, "wb") as f:
+                        f.write(uploaded_file.getbuffer())
+
+                item_data = (
+                    item_name, item_type, category, description, location, 
+                    str(report_date), contact_em, contact_ph, saved_img_path, 
+                    "None", "Active", uname, room_info
+                )
+                
                 insert_item(item_data)
                 
+                # TRIGGER MATCHING ENGINE
                 matches = find_matches(item_name, location, description, item_type, category)
                 if matches:
                     st.session_state.latest_match = matches[0]
                     st.success(f"🚀 Match Found! {matches[0]['score']}% similarity.")
                 
                 st.balloons()
-                st.success("Report Submitted Successfully!")
+                st.success("Report Submitted Successfully! View it in the Gallery.")
                 time.sleep(1.5)
                 st.rerun()
 
 elif choice == "📦 Gallery":
     st.header("🔍 Campus Gallery")
-    search_q = st.text_input("Search...")
+    
+    search_q = st.text_input("Search items (e.g. 'iPhone', 'Wallet', 'Main Block')...")
     items = search_items(search_q) if search_q else get_items()
+    
     if not items:
-        st.info("No items found.")
+        st.info("No active items found in the gallery.")
     else:
         cols = st.columns(3)
         for index, item in enumerate(items):
             with cols[index % 3]:
                 with st.container(border=True):
+                    db_img_path = item['image_path']
+                    
+                    if db_img_path and db_img_path != "None":
+                        if os.path.exists(db_img_path):
+                            st.image(db_img_path, use_container_width=True, caption=f"View of {item['item_name']}")
+                        else:
+                            st.warning("🖼️ Image file not found on server.")
+                    else:
+                        st.info("No photo provided for this item.")
+                    
                     st.subheader(item['item_name'])
-                    st.write(f"**{item['item_type']}** at 📍 {item['location_name']}")
-                    with st.expander("Details"):
-                        st.write(item['description'])
+                    st.markdown(f"**Type:** {item['item_type']}")
+                    st.markdown(f"**Location:** 📍 {item['location_name']}")
+                    
+                    with st.expander("📄 View More Details"):
+                        st.write(f"**Description:** {item['description']}")
+                        st.write(f"**Category:** {item['category']}")
+                        st.write(f"**Date Reported:** {item['date']}")
                         st.caption(f"Reported by: {item['reported_by']}")
+                        
+                        st.divider()
+                        
                         can_claim = False
                         if role == "admin":
                             can_claim = True
@@ -258,27 +333,26 @@ elif choice == "📦 Gallery":
                             can_claim = True
                         
                         if can_claim:
-                            if st.button("Claim / Resolve", key=f"cl_{item['id']}", use_container_width=True):
+                            if st.button("Mark as Resolved / Claimed", key=f"cl_{item['id']}", use_container_width=True):
                                 claim_item(item['id'], uname)
-                                st.success("Item marked as Resolved!")
+                                st.success("🎉 Item status updated to Resolved!")
+                                time.sleep(1)
                                 st.rerun()
                         else:
                             st.button("Claim Locked", key=f"lock_{item['id']}", disabled=True, use_container_width=True)
                             if item['item_type'] == "Found":
-                                st.caption("Only the owner (who reported it Lost) or Admin can claim.")
+                                st.caption("🛡️ Secure Reclaim: Only the original owner or Admin can resolve this.")
 
 elif choice == "💬 Chatroom":
     st.header("💬 Campus Discovery Chat")
     
-    # 1. Safely check for a match
     match_data = st.session_state.get("latest_match")
     
-    # 2. Block access if no match exists or score is too low
     if not match_data:
         st.warning("🔒 Chatroom Locked")
         st.error("You don't have any matches yet.")
         st.info("Report an item first to trigger the matching engine.")
-        st.stop() # Stops execution here so it doesn't crash below
+        st.stop()
 
     score = match_data.get("score", 0)
 
@@ -290,7 +364,6 @@ elif choice == "💬 Chatroom":
         st.success(f"✅ Access Granted! Matched with **{other_user}**")
         st.caption(f"Discussing: {matched_item.get('item_name')} | Match Score: {score}%")
 
-        # --- DATABASE SYNC: Fetch messages from DB so User 2 can see them ---
         chat_history = get_messages(item_id) 
 
         chat_container = st.container(height=400)
@@ -300,11 +373,9 @@ elif choice == "💬 Chatroom":
                 with st.chat_message("user" if is_me else "assistant"):
                     st.write(f"**{msg['user']}**: {msg['text']}")
 
-        # --- INPUT: Save message to DB ---
         if prompt := st.chat_input("Ask for more details..."):
-            add_message(item_id, uname, prompt) # This sends it to User 2
+            add_message(item_id, uname, prompt)
             st.rerun()
-
     else:
         st.warning("🔒 Chatroom Locked")
         st.error(f"Match score too low ({score}%). 50% or higher required.")
